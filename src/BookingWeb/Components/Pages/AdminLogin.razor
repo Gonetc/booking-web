@@ -1,0 +1,94 @@
+@page "/admin/login"
+@inject AdminSession Session
+@inject AdminApiClient Api
+@inject NavigationManager Navigation
+
+<PageTitle>Admin sign in</PageTitle>
+
+<div class="container section">
+    <div class="card login-card">
+        <h1>Admin sign in</h1>
+        <p class="muted">Manage bookings, masters and services.</p>
+
+        @if (Expired && _error is null)
+        {
+            <div class="alert alert-info" role="status">Your session has expired. Please sign in again.</div>
+        }
+        @if (_error is not null)
+        {
+            <div class="alert alert-error" role="alert">@_error</div>
+        }
+
+        <EditForm Model="_form" OnValidSubmit="SignInAsync" FormName="admin-login">
+            <DataAnnotationsValidator />
+
+            <div class="form-field">
+                <label for="username">Username</label>
+                <InputText id="username" @bind-Value="_form.Username" autocomplete="username" />
+                <ValidationMessage For="() => _form.Username" />
+            </div>
+
+            <div class="form-field">
+                <label for="password">Password</label>
+                <InputText id="password" type="password" @bind-Value="_form.Password" autocomplete="current-password" />
+                <ValidationMessage For="() => _form.Password" />
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-block" disabled="@_busy">
+                @(_busy ? "Signing in…" : "Sign in")
+            </button>
+        </EditForm>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery]
+    public bool Expired { get; set; }
+
+    private LoginForm _form = new();
+    private string? _error;
+    private bool _busy;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        await Session.LoadAsync();
+        if (Session.IsAuthenticated)
+        {
+            Navigation.NavigateTo("admin");
+        }
+    }
+
+    private async Task SignInAsync()
+    {
+        _busy = true;
+        _error = null;
+
+        try
+        {
+            var result = await Api.LoginAsync(_form.Username.Trim(), _form.Password);
+            if (result.IsSuccess)
+            {
+                await Session.SignInAsync(result.Value!);
+                Navigation.NavigateTo("admin");
+                return;
+            }
+
+            _error = result.StatusCode == 429
+                ? "Too many attempts. Please wait a minute and try again."
+                : result.Error;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            _error = "The Booking API is unavailable. Please try again later.";
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

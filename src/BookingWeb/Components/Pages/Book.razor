@@ -1,0 +1,339 @@
+@page "/book"
+@inject BookingApiClient Api
+@inject IOptions<SalonInfo> SalonOptions
+
+<PageTitle>Book an appointment · @Salon.Name</PageTitle>
+
+<div class="container narrow section">
+    <h1>Book an appointment</h1>
+
+    @if (_booking is not null)
+    {
+        <section class="card confirmation">
+            <div class="confirmation-icon" aria-hidden="true">✓</div>
+            <h2>You're booked!</h2>
+            <p>
+                See you on <strong>@Format.LongDate(_booking.Date)</strong>
+                at <strong>@Format.Time(_booking.StartTime)</strong>.
+            </p>
+            <dl class="summary">
+                <dt>Service</dt>
+                <dd>@_booking.ServiceName</dd>
+                <dt>Master</dt>
+                <dd>@_booking.MasterName</dd>
+                <dt>Time</dt>
+                <dd>@Format.Time(_booking.StartTime) – @Format.Time(_booking.EndTime)</dd>
+                <dt>Price</dt>
+                <dd>@Format.Price(_booking.Price, Salon.Currency)</dd>
+                <dt>Booking no.</dt>
+                <dd>#@_booking.Id</dd>
+            </dl>
+            <p class="muted">Need to cancel or reschedule? Call us at <a href="tel:@Salon.Phone">@Salon.Phone</a>.</p>
+            <button type="button" class="btn btn-secondary" @onclick="StartOver">Book another appointment</button>
+        </section>
+    }
+    else
+    {
+        @if (_error is not null)
+        {
+            <div class="alert alert-error" role="alert">@_error</div>
+        }
+
+        @* Step 1: service *@
+        <section class="step">
+            <h2><span class="step-number">1</span> Choose a service</h2>
+            @if (_services is null)
+            {
+                <p class="muted">Loading services…</p>
+            }
+            else
+            {
+                <div class="options">
+                    @foreach (var service in _services)
+                    {
+                        <button type="button"
+                                class="option @(service.Id == _service?.Id ? "selected" : null)"
+                                @onclick="() => SelectServiceAsync(service)">
+                            <span class="option-title">@service.Name</span>
+                            <span class="option-meta">
+                                @Format.Duration(service.DurationMinutes) · @Format.Price(service.Price, Salon.Currency)
+                            </span>
+                        </button>
+                    }
+                </div>
+            }
+        </section>
+
+        @* Step 2: master *@
+        @if (_service is not null)
+        {
+            <section class="step">
+                <h2><span class="step-number">2</span> Choose a master</h2>
+                @if (_masters is null)
+                {
+                    <p class="muted">Loading masters…</p>
+                }
+                else if (_masters.Count == 0)
+                {
+                    <p class="muted">No one provides this service at the moment.</p>
+                }
+                else
+                {
+                    <div class="options">
+                        @foreach (var master in _masters)
+                        {
+                            <button type="button"
+                                    class="option option-master @(master.Id == _master?.Id ? "selected" : null)"
+                                    @onclick="() => SelectMaster(master)">
+                                <span class="avatar avatar-small" aria-hidden="true">@Format.Initials(master.Name)</span>
+                                <span>
+                                    <span class="option-title">@master.Name</span>
+                                    <span class="option-meta">@master.Specialization</span>
+                                </span>
+                            </button>
+                        }
+                    </div>
+                }
+            </section>
+        }
+
+        @* Step 3: date and time *@
+        @if (_master is not null)
+        {
+            <section class="step">
+                <h2><span class="step-number">3</span> Pick a date and time</h2>
+                @if (_dates.Count == 0)
+                {
+                    <p class="muted">@_master.Name has no working days in the next @Salon.BookingDaysAhead days.</p>
+                }
+                else
+                {
+                    <div class="chips">
+                        @foreach (var date in _dates)
+                        {
+                            <button type="button"
+                                    class="chip chip-date @(date == _date ? "selected" : null)"
+                                    @onclick="() => SelectDateAsync(date)">
+                                <span class="chip-day">@Format.Weekday(date)</span>
+                                <span>@Format.ShortDate(date)</span>
+                            </button>
+                        }
+                    </div>
+                }
+
+                @if (_date is not null)
+                {
+                    <h3 class="subheading">Available times</h3>
+                    @if (_slots is null)
+                    {
+                        <p class="muted">Loading available times…</p>
+                    }
+                    else if (_slots.Count == 0)
+                    {
+                        <p class="muted">No free time on this day. Please pick another date.</p>
+                    }
+                    else
+                    {
+                        <div class="chips">
+                            @foreach (var slot in _slots)
+                            {
+                                <button type="button"
+                                        class="chip @(slot == _slot ? "selected" : null)"
+                                        @onclick="() => SelectSlot(slot)">
+                                    @Format.Time(slot)
+                                </button>
+                            }
+                        </div>
+                    }
+                }
+            </section>
+        }
+
+        @* Step 4: contact details *@
+        @if (_service is not null && _master is not null && _date is not null && _slot is not null)
+        {
+            <section class="step">
+                <h2><span class="step-number">4</span> Your details</h2>
+                <p class="summary-line">
+                    <strong>@_service.Name</strong> with <strong>@_master.Name</strong>
+                    on @Format.LongDate(_date.Value) at @Format.Time(_slot.Value)
+                    · @Format.Price(_service.Price, Salon.Currency)
+                </p>
+
+                <EditForm Model="_form" OnValidSubmit="SubmitAsync" FormName="booking">
+                    <DataAnnotationsValidator />
+
+                    <div class="form-field">
+                        <label for="client-name">Name</label>
+                        <InputText id="client-name" @bind-Value="_form.Name" autocomplete="name" />
+                        <ValidationMessage For="() => _form.Name" />
+                    </div>
+
+                    <div class="form-field">
+                        <label for="client-phone">Phone</label>
+                        <InputText id="client-phone" type="tel" @bind-Value="_form.Phone"
+                                   autocomplete="tel" placeholder="+1 555 123 4567" />
+                        <ValidationMessage For="() => _form.Phone" />
+                    </div>
+
+                    <button type="submit" class="btn btn-primary btn-large" disabled="@_submitting">
+                        @(_submitting ? "Booking…" : "Confirm booking")
+                    </button>
+                </EditForm>
+            </section>
+        }
+    }
+</div>
+
+@code {
+    /// <summary>Allows deep links like /book?serviceId=1 from the home page.</summary>
+    [SupplyParameterFromQuery]
+    public int? ServiceId { get; set; }
+
+    private SalonInfo Salon => SalonOptions.Value;
+
+    private IReadOnlyList<ServiceDto>? _services;
+    private ServiceDto? _service;
+
+    private IReadOnlyList<MasterDto>? _masters;
+    private MasterDto? _master;
+
+    private IReadOnlyList<DateOnly> _dates = [];
+    private DateOnly? _date;
+
+    private IReadOnlyList<TimeOnly>? _slots;
+    private TimeOnly? _slot;
+
+    private BookingForm _form = new();
+    private BookingDto? _booking;
+    private string? _error;
+    private bool _submitting;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CallApiAsync(async () =>
+        {
+            _services = await Api.GetServicesAsync();
+
+            var preselected = _services.FirstOrDefault(s => s.Id == ServiceId);
+            if (preselected is not null)
+            {
+                await SelectServiceAsync(preselected);
+            }
+        });
+    }
+
+    private async Task SelectServiceAsync(ServiceDto service)
+    {
+        _error = null;
+        _service = service;
+        _master = null;
+        _masters = null;
+        ResetDateAndTime();
+
+        await CallApiAsync(async () => _masters = await Api.GetMastersAsync(service.Id));
+    }
+
+    private void SelectMaster(MasterDto master)
+    {
+        _error = null;
+        _master = master;
+        ResetDateAndTime();
+
+        // Offer only the days on which the master works
+        var workingDays = master.WorkingHours.Select(h => h.DayOfWeek).ToHashSet();
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        _dates = Enumerable.Range(0, Salon.BookingDaysAhead)
+            .Select(today.AddDays)
+            .Where(d => workingDays.Contains(d.DayOfWeek))
+            .ToList();
+    }
+
+    private async Task SelectDateAsync(DateOnly date)
+    {
+        _error = null;
+        _date = date;
+        _slot = null;
+        _slots = null;
+        await LoadSlotsAsync();
+    }
+
+    private void SelectSlot(TimeOnly slot)
+    {
+        _error = null;
+        _slot = slot;
+    }
+
+    private async Task SubmitAsync()
+    {
+        if (_service is null || _master is null || _date is null || _slot is null)
+        {
+            return;
+        }
+
+        _submitting = true;
+        _error = null;
+
+        await CallApiAsync(async () =>
+        {
+            var request = new CreateBookingDto(
+                _master.Id, _service.Id, _date.Value, _slot.Value, _form.Name.Trim(), _form.Phone.Trim());
+
+            var result = await Api.CreateBookingAsync(request);
+            if (result.IsSuccess)
+            {
+                _booking = result.Value;
+                return;
+            }
+
+            if (result.StatusCode == 409)
+            {
+                // Someone else took the slot a moment ago: refresh the list
+                _error = "Sorry, this time was just taken. Please choose another one.";
+                _slot = null;
+                await LoadSlotsAsync();
+            }
+            else
+            {
+                _error = result.Error;
+            }
+        });
+
+        _submitting = false;
+    }
+
+    private void StartOver()
+    {
+        _booking = null;
+        _service = null;
+        _master = null;
+        _masters = null;
+        ResetDateAndTime();
+        _form = new BookingForm();
+        _error = null;
+    }
+
+    private Task LoadSlotsAsync() =>
+        CallApiAsync(async () => _slots = await Api.GetAvailabilityAsync(_master!.Id, _service!.Id, _date!.Value));
+
+    private void ResetDateAndTime()
+    {
+        _dates = [];
+        _date = null;
+        _slots = null;
+        _slot = null;
+    }
+
+    /// <summary>Runs an API call and shows a friendly message if the API is unreachable.</summary>
+    private async Task CallApiAsync(Func<Task> action)
+    {
+        try
+        {
+            await action();
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            _error = "Online booking is temporarily unavailable. Please call us or try again later.";
+        }
+    }
+}

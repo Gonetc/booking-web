@@ -1,0 +1,283 @@
+@page "/admin/masters"
+
+<PageTitle>Masters · Admin</PageTitle>
+
+<div class="admin-header">
+    <h1>Masters</h1>
+    <button type="button" class="btn btn-primary" @onclick="OpenNew">+ Add master</button>
+</div>
+
+@if (Error is not null)
+{
+    <div class="alert alert-error" role="alert">@Error</div>
+}
+@if (Success is not null)
+{
+    <div class="alert alert-success" role="status">@Success</div>
+}
+
+@if (_form is not null)
+{
+    <div class="card form-card">
+        <h2>@(_editingId is null ? "New master" : "Edit master")</h2>
+        <EditForm Model="_form" OnValidSubmit="SaveAsync" FormName="master">
+            <DataAnnotationsValidator />
+
+            <div class="form-grid">
+                <div class="form-field">
+                    <label for="master-name">Name</label>
+                    <InputText id="master-name" @bind-Value="_form.Name" />
+                    <ValidationMessage For="() => _form.Name" />
+                </div>
+                <div class="form-field">
+                    <label for="master-specialization">Specialization</label>
+                    <InputText id="master-specialization" @bind-Value="_form.Specialization" placeholder="e.g. Senior barber" />
+                    <ValidationMessage For="() => _form.Specialization" />
+                </div>
+                <div class="form-field">
+                    <label for="master-photo">Photo URL (optional)</label>
+                    <InputText id="master-photo" @bind-Value="_form.PhotoUrl" placeholder="https://…" />
+                    <ValidationMessage For="() => _form.PhotoUrl" />
+                </div>
+            </div>
+
+            <fieldset class="fieldset">
+                <legend>Services</legend>
+                @if (_services is null || _services.Count == 0)
+                {
+                    <p class="muted">Add services first.</p>
+                }
+                else
+                {
+                    <div class="checkbox-list">
+                        @foreach (var service in _services.Where(s => s.IsActive || _form.ServiceIds.Contains(s.Id)))
+                        {
+                            <label class="checkbox">
+                                <input type="checkbox"
+                                       checked="@_form.ServiceIds.Contains(service.Id)"
+                                       @onchange="e => ToggleService(service.Id, e)" />
+                                @service.Name
+                            </label>
+                        }
+                    </div>
+                }
+            </fieldset>
+
+            <fieldset class="fieldset">
+                <legend>Working hours</legend>
+                <div class="schedule">
+                    @foreach (var day in _form.Days)
+                    {
+                        <div class="schedule-row">
+                            <label class="checkbox schedule-day">
+                                <InputCheckbox @bind-Value="day.Works" />
+                                @day.Day
+                            </label>
+                            @if (day.Works)
+                            {
+                                <InputDate Type="InputDateType.Time" @bind-Value="day.Start" class="input input-time" />
+                                <span class="muted">–</span>
+                                <InputDate Type="InputDateType.Time" @bind-Value="day.End" class="input input-time" />
+                            }
+                            else
+                            {
+                                <span class="muted">Day off</span>
+                            }
+                        </div>
+                    }
+                </div>
+            </fieldset>
+
+            <label class="checkbox">
+                <InputCheckbox @bind-Value="_form.IsActive" />
+                Available for booking
+            </label>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary" disabled="@_saving">@(_saving ? "Saving…" : "Save")</button>
+                <button type="button" class="btn btn-ghost" @onclick="CloseForm">Cancel</button>
+            </div>
+        </EditForm>
+    </div>
+}
+
+@if (_masters is null)
+{
+    <p class="muted">Loading masters…</p>
+}
+else if (_masters.Count == 0)
+{
+    <div class="card empty-state">No active masters. Add the first one.</div>
+}
+else
+{
+    <div class="card table-card">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Master</th>
+                    <th>Services</th>
+                    <th>Working days</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var master in _masters)
+                {
+                    <tr>
+                        <td>
+                            <div class="master-cell">
+                                <span class="avatar avatar-small" aria-hidden="true">@Format.Initials(master.Name)</span>
+                                <div>
+                                    <div>@master.Name</div>
+                                    <div class="muted small">@master.Specialization</div>
+                                </div>
+                            </div>
+                        </td>
+                        <td>@ServiceNames(master)</td>
+                        <td>@WorkingDays(master)</td>
+                        <td class="actions">
+                            <button type="button" class="btn btn-secondary btn-small" @onclick="() => Edit(master)">Edit</button>
+                            @if (_confirmDeactivateId == master.Id)
+                            {
+                                <button type="button" class="btn btn-danger btn-small" @onclick="() => DeactivateAsync(master)">Confirm</button>
+                                <button type="button" class="btn btn-ghost btn-small" @onclick="() => _confirmDeactivateId = null">Keep</button>
+                            }
+                            else
+                            {
+                                <button type="button" class="btn btn-ghost btn-small" @onclick="() => _confirmDeactivateId = master.Id">Deactivate</button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    <p class="muted small">Deactivated masters disappear from the website. Their past bookings are kept.</p>
+}
+
+@code {
+    private List<MasterDto>? _masters;
+    private List<ServiceDto>? _services;
+    private MasterForm? _form;
+    private int? _editingId;
+    private int? _confirmDeactivateId;
+    private bool _saving;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var services = await CallAsync(() => Api.GetServicesAsync());
+        _services = services?.Value ?? [];
+        await LoadMastersAsync();
+    }
+
+    private async Task LoadMastersAsync()
+    {
+        var result = await CallAsync(() => Api.GetMastersAsync());
+        _masters = result?.Value ?? [];
+    }
+
+    private void OpenNew()
+    {
+        ClearMessages();
+        _editingId = null;
+        _form = new MasterForm();
+    }
+
+    private void Edit(MasterDto master)
+    {
+        ClearMessages();
+        _editingId = master.Id;
+        _form = MasterForm.From(master);
+    }
+
+    private void CloseForm()
+    {
+        _form = null;
+        _editingId = null;
+    }
+
+    private void ToggleService(int serviceId, ChangeEventArgs e)
+    {
+        if (_form is null)
+        {
+            return;
+        }
+
+        if (e.Value is true)
+        {
+            _form.ServiceIds.Add(serviceId);
+        }
+        else
+        {
+            _form.ServiceIds.Remove(serviceId);
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_form is null)
+        {
+            return;
+        }
+
+        ClearMessages();
+
+        if (_form.ValidateSchedule() is { } scheduleError)
+        {
+            Error = scheduleError;
+            return;
+        }
+
+        _saving = true;
+
+        var dto = _form.ToDto();
+        var result = _editingId is int id
+            ? await CallAsync(() => Api.UpdateMasterAsync(id, dto))
+            : await CallAsync(() => Api.CreateMasterAsync(dto));
+
+        _saving = false;
+
+        if (result is not null)
+        {
+            Success = $"{result.Value!.Name} was saved.";
+            CloseForm();
+            await LoadMastersAsync();
+        }
+    }
+
+    private async Task DeactivateAsync(MasterDto master)
+    {
+        ClearMessages();
+        _confirmDeactivateId = null;
+
+        var result = await CallAsync(() => Api.DeactivateMasterAsync(master.Id));
+        if (result is not null)
+        {
+            Success = $"{master.Name} was deactivated.";
+            await LoadMastersAsync();
+        }
+    }
+
+    private string ServiceNames(MasterDto master)
+    {
+        var names = _services?
+            .Where(s => master.ServiceIds.Contains(s.Id))
+            .Select(s => s.Name)
+            .ToList() ?? [];
+        return names.Count == 0 ? "—" : string.Join(", ", names);
+    }
+
+    private static string WorkingDays(MasterDto master)
+    {
+        if (master.WorkingHours.Count == 0)
+        {
+            return "—";
+        }
+
+        return string.Join(", ", MasterForm.Week
+            .Select(day => master.WorkingHours.FirstOrDefault(h => h.DayOfWeek == day))
+            .OfType<WorkingHoursDto>()
+            .Select(h => $"{h.DayOfWeek.ToString()[..3]} {Format.Time(h.StartTime)}–{Format.Time(h.EndTime)}"));
+    }
+}

@@ -1,0 +1,152 @@
+@page "/admin"
+@using System.Globalization
+@inject IOptions<SalonInfo> SalonOptions
+
+<PageTitle>Schedule · Admin</PageTitle>
+
+<div class="admin-header">
+    <div>
+        <h1>Schedule</h1>
+        <p class="muted">@Format.LongDate(_date)</p>
+    </div>
+    <div class="date-nav">
+        <button type="button" class="btn btn-secondary btn-small" @onclick="() => ShiftDateAsync(-1)" aria-label="Previous day">←</button>
+        <input type="date" class="input" value="@_date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)" @onchange="OnDatePickedAsync" />
+        <button type="button" class="btn btn-secondary btn-small" @onclick="() => ShiftDateAsync(1)" aria-label="Next day">→</button>
+        <button type="button" class="btn btn-secondary btn-small" @onclick="TodayAsync">Today</button>
+    </div>
+</div>
+
+@if (Error is not null)
+{
+    <div class="alert alert-error" role="alert">@Error</div>
+}
+@if (Success is not null)
+{
+    <div class="alert alert-success" role="status">@Success</div>
+}
+
+@if (_bookings is null)
+{
+    <p class="muted">Loading bookings…</p>
+}
+else
+{
+    <div class="stats">
+        <div class="stat">
+            <span class="stat-value">@Active.Count()</span>
+            <span class="stat-label">Bookings</span>
+        </div>
+        <div class="stat">
+            <span class="stat-value">@Format.Price(Active.Sum(b => b.Price), SalonOptions.Value.Currency)</span>
+            <span class="stat-label">Expected revenue</span>
+        </div>
+        <div class="stat">
+            <span class="stat-value">@_bookings.Count(b => b.Status == "Cancelled")</span>
+            <span class="stat-label">Cancelled</span>
+        </div>
+    </div>
+
+    @if (_bookings.Count == 0)
+    {
+        <div class="card empty-state">No bookings for this day.</div>
+    }
+    else
+    {
+        <div class="card table-card">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Client</th>
+                        <th>Service</th>
+                        <th>Master</th>
+                        <th>Status</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var booking in _bookings.OrderBy(b => b.StartTime).ThenBy(b => b.MasterName))
+                    {
+                        <tr class="@(booking.Status == "Cancelled" ? "row-muted" : null)">
+                            <td class="nowrap">@Format.Time(booking.StartTime)–@Format.Time(booking.EndTime)</td>
+                            <td>
+                                <div>@booking.ClientName</div>
+                                <a class="muted small" href="tel:@booking.ClientPhone">@booking.ClientPhone</a>
+                            </td>
+                            <td>@booking.ServiceName</td>
+                            <td>@booking.MasterName</td>
+                            <td><span class="status status-@booking.Status.ToLowerInvariant()">@booking.Status</span></td>
+                            <td class="actions">
+                                @if (booking.Status == "Confirmed" && _confirmCancelId == booking.Id)
+                                {
+                                    <button type="button" class="btn btn-danger btn-small" @onclick="() => CancelBookingAsync(booking.Id)">Confirm cancel</button>
+                                    <button type="button" class="btn btn-ghost btn-small" @onclick="() => _confirmCancelId = null">Keep</button>
+                                }
+                                else if (booking.Status == "Confirmed")
+                                {
+                                    <button type="button" class="btn btn-secondary btn-small" @onclick="() => _confirmCancelId = booking.Id">Cancel</button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@code {
+    private DateOnly _date = DateOnly.FromDateTime(DateTime.Now);
+    private List<BookingDto>? _bookings;
+    private int? _confirmCancelId;
+
+    private IEnumerable<BookingDto> Active => _bookings?.Where(b => b.Status != "Cancelled") ?? [];
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        Error = null;
+        _bookings = null;
+        _confirmCancelId = null;
+
+        var result = await CallAsync(() => Api.GetBookingsAsync(_date));
+        _bookings = result?.Value ?? [];
+    }
+
+    private Task ShiftDateAsync(int days)
+    {
+        Success = null;
+        _date = _date.AddDays(days);
+        return LoadAsync();
+    }
+
+    private Task TodayAsync()
+    {
+        Success = null;
+        _date = DateOnly.FromDateTime(DateTime.Now);
+        return LoadAsync();
+    }
+
+    private async Task OnDatePickedAsync(ChangeEventArgs e)
+    {
+        if (DateOnly.TryParseExact(e.Value?.ToString(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+        {
+            Success = null;
+            _date = date;
+            await LoadAsync();
+        }
+    }
+
+    private async Task CancelBookingAsync(int id)
+    {
+        ClearMessages();
+        var result = await CallAsync(() => Api.CancelBookingAsync(id));
+        if (result is not null)
+        {
+            await LoadAsync();
+            Success = $"Booking #{id} was cancelled. The time slot is free again.";
+        }
+    }
+}

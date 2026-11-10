@@ -1,0 +1,37 @@
+@inherits LayoutComponentBase
+@inject IOptions<SalonInfo> SalonOptions
+
+<header class="site-header">
+    <div class="container header-inner">
+        <a class="brand" href="">
+            <span class="brand-mark" aria-hidden="true">✂</span>
+            @Salon.Name
+        </a>
+        <nav class="nav">
+            <NavLink href="" Match="NavLinkMatch.All">Home</NavLink>
+            <a class="btn btn-primary btn-small" href="book">Book now</a>
+        </nav>
+    </div>
+</header>
+
+<main class="site-main">
+    @Body
+</main>
+
+<footer class="site-footer">
+    <div class="container footer-inner">
+        <span>@Salon.Name</span>
+        <span>@Salon.Address</span>
+        <a href="tel:@Salon.Phone">@Salon.Phone</a>
+        <a class="footer-staff" href="admin">Staff login</a>
+    </div>
+</footer>
+
+<div id="blazor-error-ui" data-nosnippet>
+    Something went wrong. <a href="." class="reload">Reload the page</a>
+    <span class="dismiss">✕</span>
+</div>
+
+@code {
+    private SalonInfo Salon => SalonOptions.Value;
+}

@@ -1,0 +1,192 @@
+@page "/admin/services"
+@inject IOptions<SalonInfo> SalonOptions
+
+<PageTitle>Services · Admin</PageTitle>
+
+<div class="admin-header">
+    <h1>Services</h1>
+    <button type="button" class="btn btn-primary" @onclick="OpenNew">+ Add service</button>
+</div>
+
+@if (Error is not null)
+{
+    <div class="alert alert-error" role="alert">@Error</div>
+}
+@if (Success is not null)
+{
+    <div class="alert alert-success" role="status">@Success</div>
+}
+
+@if (_form is not null)
+{
+    <div class="card form-card">
+        <h2>@(_editingId is null ? "New service" : "Edit service")</h2>
+        <EditForm Model="_form" OnValidSubmit="SaveAsync" FormName="service">
+            <DataAnnotationsValidator />
+
+            <div class="form-grid">
+                <div class="form-field">
+                    <label for="service-name">Name</label>
+                    <InputText id="service-name" @bind-Value="_form.Name" />
+                    <ValidationMessage For="() => _form.Name" />
+                </div>
+                <div class="form-field">
+                    <label for="service-duration">Duration, minutes</label>
+                    <InputNumber id="service-duration" @bind-Value="_form.DurationMinutes" min="5" max="480" step="5" />
+                    <ValidationMessage For="() => _form.DurationMinutes" />
+                </div>
+                <div class="form-field">
+                    <label for="service-price">Price, @SalonOptions.Value.Currency</label>
+                    <InputNumber id="service-price" @bind-Value="_form.Price" min="0" step="0.01" />
+                    <ValidationMessage For="() => _form.Price" />
+                </div>
+            </div>
+
+            <div class="form-field form-field-wide">
+                <label for="service-description">Description</label>
+                <InputTextArea id="service-description" @bind-Value="_form.Description" rows="3" />
+                <ValidationMessage For="() => _form.Description" />
+            </div>
+
+            <label class="checkbox">
+                <InputCheckbox @bind-Value="_form.IsActive" />
+                Visible to clients
+            </label>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary" disabled="@_saving">@(_saving ? "Saving…" : "Save")</button>
+                <button type="button" class="btn btn-ghost" @onclick="CloseForm">Cancel</button>
+            </div>
+        </EditForm>
+    </div>
+}
+
+@if (_services is null)
+{
+    <p class="muted">Loading services…</p>
+}
+else if (_services.Count == 0)
+{
+    <div class="card empty-state">No services yet. Add the first one.</div>
+}
+else
+{
+    <div class="card table-card">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Duration</th>
+                    <th>Price</th>
+                    <th>Status</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var service in _services)
+                {
+                    <tr class="@(service.IsActive ? null : "row-muted")">
+                        <td>
+                            <div>@service.Name</div>
+                            <div class="muted small">@service.Description</div>
+                        </td>
+                        <td class="nowrap">@Format.Duration(service.DurationMinutes)</td>
+                        <td>@Format.Price(service.Price, SalonOptions.Value.Currency)</td>
+                        <td>
+                            <span class="status @(service.IsActive ? "status-confirmed" : "status-cancelled")">
+                                @(service.IsActive ? "Active" : "Hidden")
+                            </span>
+                        </td>
+                        <td class="actions">
+                            <button type="button" class="btn btn-secondary btn-small" @onclick="() => Edit(service)">Edit</button>
+                            @if (service.IsActive && _confirmDeactivateId == service.Id)
+                            {
+                                <button type="button" class="btn btn-danger btn-small" @onclick="() => DeactivateAsync(service)">Confirm</button>
+                                <button type="button" class="btn btn-ghost btn-small" @onclick="() => _confirmDeactivateId = null">Keep</button>
+                            }
+                            else if (service.IsActive)
+                            {
+                                <button type="button" class="btn btn-ghost btn-small" @onclick="() => _confirmDeactivateId = service.Id">Hide</button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    <p class="muted small">Hidden services are not offered to clients, but existing bookings keep them.</p>
+}
+
+@code {
+    private List<ServiceDto>? _services;
+    private ServiceForm? _form;
+    private int? _editingId;
+    private int? _confirmDeactivateId;
+    private bool _saving;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        var result = await CallAsync(() => Api.GetServicesAsync());
+        _services = result?.Value?.OrderBy(s => !s.IsActive).ThenBy(s => s.Name).ToList() ?? [];
+    }
+
+    private void OpenNew()
+    {
+        ClearMessages();
+        _editingId = null;
+        _form = new ServiceForm();
+    }
+
+    private void Edit(ServiceDto service)
+    {
+        ClearMessages();
+        _editingId = service.Id;
+        _form = ServiceForm.From(service);
+    }
+
+    private void CloseForm()
+    {
+        _form = null;
+        _editingId = null;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_form is null)
+        {
+            return;
+        }
+
+        ClearMessages();
+        _saving = true;
+
+        var dto = _form.ToDto();
+        var result = _editingId is int id
+            ? await CallAsync(() => Api.UpdateServiceAsync(id, dto))
+            : await CallAsync(() => Api.CreateServiceAsync(dto));
+
+        _saving = false;
+
+        if (result is not null)
+        {
+            Success = $"Service \"{result.Value!.Name}\" was saved.";
+            CloseForm();
+            await LoadAsync();
+        }
+    }
+
+    private async Task DeactivateAsync(ServiceDto service)
+    {
+        ClearMessages();
+        _confirmDeactivateId = null;
+
+        var result = await CallAsync(() => Api.DeactivateServiceAsync(service.Id));
+        if (result is not null)
+        {
+            Success = $"Service \"{service.Name}\" is now hidden from clients.";
+            await LoadAsync();
+        }
+    }
+}

@@ -1,0 +1,72 @@
+@inherits LayoutComponentBase
+@inject AdminSession Session
+@inject NavigationManager Navigation
+@inject IOptions<SalonInfo> SalonOptions
+
+<div class="admin-shell">
+    <aside class="admin-sidebar">
+        <a class="brand" href="admin">
+            <span class="brand-mark" aria-hidden="true">✂</span>
+            Admin
+        </a>
+        <p class="admin-salon">@SalonOptions.Value.Name</p>
+
+        <nav class="admin-nav">
+            <NavLink href="admin" Match="NavLinkMatch.All">Schedule</NavLink>
+            <NavLink href="admin/masters">Masters</NavLink>
+            <NavLink href="admin/services">Services</NavLink>
+        </nav>
+
+        <div class="admin-sidebar-footer">
+            <a href="" target="_blank" rel="noopener">View website ↗</a>
+            <button type="button" class="link-button" @onclick="SignOutAsync">Sign out</button>
+        </div>
+    </aside>
+
+    <main class="admin-main">
+        @if (_ready)
+        {
+            @Body
+        }
+        else
+        {
+            <p class="muted">Loading…</p>
+        }
+    </main>
+</div>
+
+<div id="blazor-error-ui" data-nosnippet>
+    Something went wrong. <a href="." class="reload">Reload the page</a>
+    <span class="dismiss">✕</span>
+</div>
+
+@code {
+    // Pages are rendered only after the session is checked,
+    // so they never call the API without a token.
+    private bool _ready;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        // Browser storage is available only after the first interactive render
+        await Session.LoadAsync();
+        if (!Session.IsAuthenticated)
+        {
+            Navigation.NavigateTo("admin/login");
+            return;
+        }
+
+        _ready = true;
+        StateHasChanged();
+    }
+
+    private async Task SignOutAsync()
+    {
+        await Session.SignOutAsync();
+        Navigation.NavigateTo("admin/login");
+    }
+}

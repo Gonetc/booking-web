@@ -1,0 +1,95 @@
+@page "/"
+@inject BookingApiClient Api
+@inject IOptions<SalonInfo> SalonOptions
+
+<PageTitle>@Salon.Name</PageTitle>
+
+<section class="hero">
+    <div class="container">
+        <h1>@Salon.Name</h1>
+        <p class="hero-tagline">@Salon.Tagline</p>
+        <a class="btn btn-primary btn-large" href="book">Book an appointment</a>
+    </div>
+</section>
+
+<div class="container">
+    @if (_error is not null)
+    {
+        <div class="alert alert-error" role="alert">@_error</div>
+    }
+
+    <section class="section">
+        <h2>Services</h2>
+        @if (_services is null && _error is null)
+        {
+            <p class="muted">Loading services…</p>
+        }
+        else if (_services is not null)
+        {
+            <div class="grid">
+                @foreach (var service in _services)
+                {
+                    <article class="card service-card">
+                        <h3>@service.Name</h3>
+                        @if (!string.IsNullOrWhiteSpace(service.Description))
+                        {
+                            <p class="muted">@service.Description</p>
+                        }
+                        <div class="card-footer">
+                            <span class="badge">@Format.Duration(service.DurationMinutes)</span>
+                            <span class="price">@Format.Price(service.Price, Salon.Currency)</span>
+                        </div>
+                        <a class="btn btn-secondary" href="book?serviceId=@service.Id">Book</a>
+                    </article>
+                }
+            </div>
+        }
+    </section>
+
+    <section class="section">
+        <h2>Our masters</h2>
+        @if (_masters is not null)
+        {
+            <div class="grid">
+                @foreach (var master in _masters)
+                {
+                    <article class="card master-card">
+                        @if (string.IsNullOrWhiteSpace(master.PhotoUrl))
+                        {
+                            <div class="avatar" aria-hidden="true">@Format.Initials(master.Name)</div>
+                        }
+                        else
+                        {
+                            <img class="avatar" src="@master.PhotoUrl" alt="@master.Name" />
+                        }
+                        <div>
+                            <h3>@master.Name</h3>
+                            <p class="muted">@master.Specialization</p>
+                        </div>
+                    </article>
+                }
+            </div>
+        }
+    </section>
+</div>
+
+@code {
+    private SalonInfo Salon => SalonOptions.Value;
+
+    private IReadOnlyList<ServiceDto>? _services;
+    private IReadOnlyList<MasterDto>? _masters;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _services = await Api.GetServicesAsync();
+            _masters = await Api.GetMastersAsync();
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            _error = "Online booking is temporarily unavailable. Please call us or try again later.";
+        }
+    }
+}
